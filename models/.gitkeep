@@ -1,0 +1,2 @@
+# Place your trained model file (deepfake_model_v2.pth) in this directory
+# The model should be a PyTorch state_dict for the Detector class

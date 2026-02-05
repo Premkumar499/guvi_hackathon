@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: deepfake-voice-detection-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    plan: free
+    envVars:
+      - key: API_KEY
+        value: deepfake_detection_api_key_2026
+      - key: PYTHON_VERSION
+        value: 3.12.0

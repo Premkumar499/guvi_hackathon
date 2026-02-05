@@ -1,0 +1,9 @@
+torch
+transformers
+librosa
+numpy
+flask
+flask-cors
+soundfile
+requests
+gunicorn
