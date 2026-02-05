@@ -4,26 +4,33 @@ from transformers import Wav2Vec2Model
 import logging
 import os
 
+# Disable tokenizers parallelism to save memory
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class Detector(nn.Module):
     """
     Deepfake audio detector using Wav2Vec2 encoder.
+    Memory-optimized for 512MB environments.
     """
     def __init__(self):
         """
-        Initialize the detector model.
+        Initialize the detector model with memory optimizations.
         
         Raises:
             Exception: If model initialization fails
         """
         try:
             super().__init__()
-            logger.info("Initializing Wav2Vec2 encoder...")
+            logger.info("Initializing Wav2Vec2 encoder (memory-optimized)...")
             
+            # Load with low_cpu_mem_usage to reduce peak memory
             self.encoder = Wav2Vec2Model.from_pretrained(
-                "facebook/wav2vec2-base"
+                "facebook/wav2vec2-base",
+                low_cpu_mem_usage=True,
+                torch_dtype=torch.float16
             )
             self.classifier = nn.Linear(768, 1)
             
