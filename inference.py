@@ -24,31 +24,33 @@ try:
     print("🔄 Loading model...")
     
     if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
+        logger.warning(f"⚠️ Model file not found: {MODEL_PATH}")
+        logger.warning("⚠️ API will start but predictions will fail until model is uploaded")
+        model = None
+        device = None
+    else:
+        model = Detector()
+        
+        # Check if CUDA is available if device is set to cuda
+        device = DEVICE
+        if device == "cuda" and not torch.cuda.is_available():
+            logger.warning("CUDA not available, falling back to CPU")
+            device = "cpu"
+        
+        model.load_state_dict(
+            torch.load(MODEL_PATH, map_location="cpu")
+        )
+        model.to(device)
+        model.eval()
+        
+        logger.info(f"✅ Model loaded successfully on {device}")
+        print("✅ Model Loaded")
     
-    model = Detector()
-    
-    # Check if CUDA is available if device is set to cuda
-    device = DEVICE
-    if device == "cuda" and not torch.cuda.is_available():
-        logger.warning("CUDA not available, falling back to CPU")
-        device = "cpu"
-    
-    model.load_state_dict(
-        torch.load(MODEL_PATH, map_location="cpu")
-    )
-    model.to(device)
-    model.eval()
-    
-    logger.info(f"✅ Model loaded successfully on {device}")
-    print("✅ Model Loaded")
-    
-except FileNotFoundError as e:
-    logger.error(f"Model file not found: {e}")
-    raise
 except Exception as e:
     logger.error(f"Failed to load model: {e}")
-    raise RuntimeError(f"Model loading failed: {e}")
+    logger.warning("⚠️ API will start but predictions will fail until model is fixed")
+    model = None
+    device = None
 
 def predict_file(path, language="English"):
     """
@@ -66,6 +68,18 @@ def predict_file(path, language="English"):
         RuntimeError: If prediction fails
     """
     try:
+        # Check if model is loaded
+        if model is None:
+            logger.error("Model not loaded - predictions cannot be made")
+            return {
+                "status": "error",
+                "message": "Model file not available on server. Please contact administrator.",
+                "language": language,
+                "classification": "UNKNOWN",
+                "confidenceScore": 0.0,
+                "explanation": "The deepfake detection model is not currently loaded on the server."
+            }
+        
         if not path:
             raise ValueError("Audio file path is empty")
             
