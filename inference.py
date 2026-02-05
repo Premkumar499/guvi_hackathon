@@ -6,6 +6,11 @@ from config import MODEL_PATH, DEVICE, THRESHOLD
 import os
 import logging
 
+# Memory optimization settings
+torch.set_num_threads(2)  # Limit CPU threads
+os.environ["OMP_NUM_THREADS"] = "2"
+os.environ["MKL_NUM_THREADS"] = "2"
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -31,20 +36,25 @@ try:
     else:
         model = Detector()
         
-        # Check if CUDA is available if device is set to cuda
-        device = DEVICE
-        if device == "cuda" and not torch.cuda.is_available():
-            logger.warning("CUDA not available, falling back to CPU")
-            device = "cpu"
+        # Always use CPU to save memory
+        device = "cpu"
         
-        model.load_state_dict(
-            torch.load(MODEL_PATH, map_location="cpu")
-        )
+        # Load model with memory optimization
+        logger.info("Loading model weights with memory optimization...")
+        state_dict = torch.load(MODEL_PATH, map_location="cpu", weights_only=True)
+        model.load_state_dict(state_dict)
+        del state_dict  # Free memory immediately
+        
+        # Convert to half precision (float16) to save ~50% memory
+        model = model.half()
         model.to(device)
         model.eval()
         
-        logger.info(f"✅ Model loaded successfully on {device}")
-        print("✅ Model Loaded")
+        # Set to inference mode (reduces memory further)
+        torch.set_grad_enabled(False)
+        
+        logger.info(f"✅ Model loaded in half precision on {device}")
+        print("✅ Model Loaded (Memory Optimized)")
     
 except Exception as e:
     logger.error(f"Failed to load model: {e}")
@@ -96,13 +106,16 @@ def predict_file(path, language="English"):
             return_tensors="pt"
         )
         
-        # Use the device variable defined during initialization
-        device = "cuda" if DEVICE == "cuda" and torch.cuda.is_available() else "cpu"
+        # Use CPU (already set during model loading)
+        device = "cpu"
 
         with torch.no_grad():
-            logits = model(
-                inputs.input_values.to(device)
-            )
+            # Convert inputs to half precision if model is in half precision
+            input_values = inputs.input_values.to(device)
+            if model.wav2vec2.dtype == torch.float16:
+                input_values = input_values.half()
+            
+            logits = model(input_values)
             prob = torch.sigmoid(logits).item()
 
         # Determine classification based on threshold
