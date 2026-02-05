@@ -34,9 +34,28 @@ def decode_base64_audio(b64_string):
         
         # Remove data URI prefix if present (e.g., "data:audio/mp3;base64," or "data:audio/wav;base64,")
         if "," in b64_string:
-            b64_string = b64_string.split(",")[1]
-            
-        audio_bytes = base64.b64decode(b64_string)
+            b64_string = b64_string.split(",", 1)[1]  # Only split on first comma
+
+        # Clean up the base64 string - remove ALL whitespace characters
+        import re
+        b64_string = re.sub(r'\s+', '', b64_string)
+        
+        # Convert URL-safe base64 to standard base64
+        b64_string = b64_string.replace('-', '+').replace('_', '/')
+        
+        # Remove any existing padding first, then add correct padding
+        b64_string = b64_string.rstrip('=')
+        missing_padding = len(b64_string) % 4
+        if missing_padding:
+            b64_string += "=" * (4 - missing_padding)
+
+        # Validate base64 characters before decoding
+        valid_chars = set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=')
+        invalid_chars = set(b64_string) - valid_chars
+        if invalid_chars:
+            raise ValueError(f"Invalid characters in base64 string: {invalid_chars}")
+
+        audio_bytes = base64.b64decode(b64_string, validate=True)
         
         if len(audio_bytes) == 0:
             raise ValueError("Decoded audio data is empty")

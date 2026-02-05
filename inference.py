@@ -1,32 +1,47 @@
 import torch
+import os
+import logging
+import gc
+
+# CRITICAL: Set memory limits BEFORE importing anything else
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["TRANSFORMERS_OFFLINE"] = "0"
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
+# Limit PyTorch threads to minimum
+torch.set_num_threads(1)
+
+# Disable gradient globally
+torch.set_grad_enabled(False)
+
 from transformers import Wav2Vec2Processor
 from detector import Detector
 from audio_utils import load_audio
 from config import MODEL_PATH, DEVICE, THRESHOLD
-import os
-import logging
-
-# Memory optimization settings
-torch.set_num_threads(2)  # Limit CPU threads
-os.environ["OMP_NUM_THREADS"] = "2"
-os.environ["MKL_NUM_THREADS"] = "2"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Force garbage collection before loading
+gc.collect()
+
 # Initialize processor and model with error handling
 try:
-    logger.info("Initializing Wav2Vec2 processor...")
+    logger.info("Initializing Wav2Vec2 processor (memory-optimized)...")
     processor = Wav2Vec2Processor.from_pretrained(
-        "facebook/wav2vec2-base"
+        "facebook/wav2vec2-base",
+        local_files_only=False
     )
+    gc.collect()
     logger.info("✅ Processor loaded successfully")
 except Exception as e:
     logger.error(f"Failed to load processor: {e}")
     raise RuntimeError(f"Processor initialization failed: {e}")
 
 try:
-    print("🔄 Loading model...")
+    print("🔄 Loading model (512MB memory-optimized)...")
     
     if not os.path.exists(MODEL_PATH):
         logger.warning(f"⚠️ Model file not found: {MODEL_PATH}")
@@ -34,27 +49,29 @@ try:
         model = None
         device = None
     else:
-        model = Detector()
-        
-        # Always use CPU to save memory
+        # Load model on CPU with minimal memory
         device = "cpu"
         
-        # Load model with memory optimization
-        logger.info("Loading model weights with memory optimization...")
-        state_dict = torch.load(MODEL_PATH, map_location="cpu", weights_only=True)
-        model.load_state_dict(state_dict)
-        del state_dict  # Free memory immediately
+        # Load weights first with mmap to reduce peak memory
+        logger.info("Loading model weights with mmap...")
+        state_dict = torch.load(MODEL_PATH, map_location="cpu", weights_only=True, mmap=True)
         
-        # Convert to half precision (float16) to save ~50% memory
-        model = model.half()
+        # Initialize model (encoder loads in float16)
+        model = Detector()
+        model.load_state_dict(state_dict, strict=False)
+        del state_dict
+        gc.collect()
+        
+        # Ensure classifier is also half precision
+        model.classifier = model.classifier.half()
         model.to(device)
         model.eval()
         
-        # Set to inference mode (reduces memory further)
-        torch.set_grad_enabled(False)
+        # Clear any cached memory
+        gc.collect()
         
-        logger.info(f"✅ Model loaded in half precision on {device}")
-        print("✅ Model Loaded (Memory Optimized)")
+        logger.info(f"✅ Model loaded in half-precision on {device}")
+        print("✅ Model Loaded (512MB Optimized)")
     
 except Exception as e:
     logger.error(f"Failed to load model: {e}")
@@ -106,15 +123,12 @@ def predict_file(path, language="English"):
             return_tensors="pt"
         )
         
-        # Use CPU (already set during model loading)
+        # Use CPU with half-precision
         device = "cpu"
 
         with torch.no_grad():
-            # Convert inputs to half precision if model is in half precision
-            input_values = inputs.input_values.to(device)
-            if model.wav2vec2.dtype == torch.float16:
-                input_values = input_values.half()
-            
+            # Convert inputs to half-precision to match model
+            input_values = inputs.input_values.to(device).half()
             logits = model(input_values)
             prob = torch.sigmoid(logits).item()
 
@@ -161,6 +175,11 @@ def predict_file(path, language="English"):
         }
         
         logger.info(f"Prediction complete: {classification} (confidenceScore: {confidence_score})")
+        
+        # Memory cleanup after prediction
+        del audio, inputs, input_values, logits
+        gc.collect()
+        
         return result
         
     except FileNotFoundError as e:

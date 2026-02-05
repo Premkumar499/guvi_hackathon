@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from inference_lite import predict_file
+from inference import predict_file
 from audio_utils import decode_base64_audio
 import os
 import logging
@@ -39,9 +39,31 @@ def require_api_key(f):
         return f(*args, **kwargs)
     return decorated_function
 
-@app.route("/")
+@app.route("/", methods=["GET", "POST"])
 def home():
     """Health check endpoint."""
+    if request.method == "POST":
+        return jsonify({
+            "status": "error",
+            "message": "Use /api/voice-detection endpoint for POST requests",
+            "correct_endpoint": "/api/voice-detection",
+            "example_curl": 'curl -X POST https://your-domain/api/voice-detection -H "Content-Type: application/json" -H "x-api-key: YOUR_API_KEY" -d \'{"language":"Tamil","audioFormat":"mp3","audioBase64":"BASE64_AUDIO_DATA"}\'',
+            "required_headers": {
+                "Content-Type": "application/json",
+                "x-api-key": "your_api_key"
+            },
+            "required_body": {
+                "language": "Tamil|English|Hindi|Malayalam|Telugu",
+                "audioFormat": "mp3",
+                "audioBase64": "base64_encoded_audio (standard or URL-safe)"
+            },
+            "notes": [
+                "Base64 can be standard or URL-safe encoded",
+                "Data URI format (data:audio/mp3;base64,...) is also supported",
+                "Maximum audio size: 10MB"
+            ]
+        }), 400
+
     return {
         "status": "Deepfake Voice Detection API Running",
         "version": "1.0",
@@ -185,9 +207,8 @@ def voice_detection():
         }), 500
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
     app.run(
         host="0.0.0.0",
-        port=port,
+        port=5000,
         debug=False
     )

@@ -1,7 +1,7 @@
 services:
   - type: web
     name: deepfake-voice-detection-api
-    env: python
+    runtime: python
     buildCommand: pip install -r requirements.txt && chmod +x startup.sh
     startCommand: ./startup.sh
     plan: free
