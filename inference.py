@@ -3,19 +3,6 @@ import os
 import logging
 import gc
 
-# CRITICAL: Set memory limits BEFORE importing anything else
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["TRANSFORMERS_OFFLINE"] = "0"
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-
-# Limit PyTorch threads to minimum
-torch.set_num_threads(1)
-
-# Disable gradient globally
-torch.set_grad_enabled(False)
-
 from transformers import Wav2Vec2Processor
 from detector import Detector
 from audio_utils import load_audio
@@ -24,24 +11,19 @@ from config import MODEL_PATH, DEVICE, THRESHOLD
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Force garbage collection before loading
-gc.collect()
-
 # Initialize processor and model with error handling
 try:
-    logger.info("Initializing Wav2Vec2 processor (memory-optimized)...")
+    logger.info("Initializing Wav2Vec2 processor...")
     processor = Wav2Vec2Processor.from_pretrained(
-        "facebook/wav2vec2-base",
-        local_files_only=False
+        "facebook/wav2vec2-base"
     )
-    gc.collect()
     logger.info("✅ Processor loaded successfully")
 except Exception as e:
     logger.error(f"Failed to load processor: {e}")
     raise RuntimeError(f"Processor initialization failed: {e}")
 
 try:
-    print("🔄 Loading model (512MB memory-optimized)...")
+    print("🔄 Loading model...")
     
     if not os.path.exists(MODEL_PATH):
         logger.warning(f"⚠️ Model file not found: {MODEL_PATH}")
@@ -51,28 +33,24 @@ try:
     else:
         device = "cpu"
         
-        # CRITICAL: Create model WITHOUT downloading from HuggingFace
-        # The saved weights contain the full encoder, so we don't need to download
-        logger.info("Creating model architecture (no download)...")
-        model = Detector(load_pretrained=False)
-        gc.collect()
+        # Initialize model (downloads Wav2Vec2 base encoder)
+        model = Detector()
         
-        # Load ALL weights from saved file (encoder + classifier)
-        logger.info("Loading saved weights with mmap...")
-        state_dict = torch.load(MODEL_PATH, map_location="cpu", weights_only=True, mmap=True)
-        model.load_state_dict(state_dict, strict=True)
+        # Load trained weights
+        logger.info("Loading saved weights...")
+        state_dict = torch.load(MODEL_PATH, map_location="cpu", weights_only=True)
+        model.load_state_dict(state_dict)
         del state_dict
         gc.collect()
         
-        # Convert to half precision
-        model = model.half()
         model.to(device)
         model.eval()
         
-        gc.collect()
+        # Disable gradients for inference
+        torch.set_grad_enabled(False)
         
-        logger.info(f"✅ Model loaded in half-precision on {device}")
-        print("✅ Model Loaded (512MB Optimized - No Download)")
+        logger.info(f"✅ Model loaded on {device}")
+        print("✅ Model Loaded Successfully")
     
 except Exception as e:
     logger.error(f"Failed to load model: {e}")
@@ -124,12 +102,10 @@ def predict_file(path, language="English"):
             return_tensors="pt"
         )
         
-        # Use CPU with half-precision
         device = "cpu"
 
         with torch.no_grad():
-            # Convert inputs to half-precision to match model
-            input_values = inputs.input_values.to(device).half()
+            input_values = inputs.input_values.to(device)
             logits = model(input_values)
             prob = torch.sigmoid(logits).item()
 

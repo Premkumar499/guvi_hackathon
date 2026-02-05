@@ -1,11 +1,8 @@
 import torch
 import torch.nn as nn
-from transformers import Wav2Vec2Model, Wav2Vec2Config
+from transformers import Wav2Vec2Model
 import logging
 import os
-
-# Disable tokenizers parallelism to save memory
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -13,34 +10,21 @@ logger = logging.getLogger(__name__)
 class Detector(nn.Module):
     """
     Deepfake audio detector using Wav2Vec2 encoder.
-    Memory-optimized for 512MB environments.
     """
-    def __init__(self, load_pretrained=True):
+    def __init__(self):
         """
-        Initialize the detector model with memory optimizations.
-        
-        Args:
-            load_pretrained: If False, only create architecture without downloading weights
+        Initialize the detector model.
         
         Raises:
             Exception: If model initialization fails
         """
         try:
             super().__init__()
-            logger.info("Initializing Wav2Vec2 encoder (memory-optimized)...")
+            logger.info("Initializing Wav2Vec2 encoder...")
             
-            if load_pretrained:
-                # Load with memory optimizations
-                self.encoder = Wav2Vec2Model.from_pretrained(
-                    "facebook/wav2vec2-base",
-                    low_cpu_mem_usage=True,
-                    torch_dtype=torch.float16
-                )
-            else:
-                # Create model from config only (no download)
-                config = Wav2Vec2Config()
-                self.encoder = Wav2Vec2Model(config)
-                
+            self.encoder = Wav2Vec2Model.from_pretrained(
+                "facebook/wav2vec2-base"
+            )
             self.classifier = nn.Linear(768, 1)
             
             logger.info("Detector model initialized successfully")
