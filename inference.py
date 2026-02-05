@@ -49,29 +49,30 @@ try:
         model = None
         device = None
     else:
-        # Load model on CPU with minimal memory
         device = "cpu"
         
-        # Load weights first with mmap to reduce peak memory
-        logger.info("Loading model weights with mmap...")
-        state_dict = torch.load(MODEL_PATH, map_location="cpu", weights_only=True, mmap=True)
+        # CRITICAL: Create model WITHOUT downloading from HuggingFace
+        # The saved weights contain the full encoder, so we don't need to download
+        logger.info("Creating model architecture (no download)...")
+        model = Detector(load_pretrained=False)
+        gc.collect()
         
-        # Initialize model (encoder loads in float16)
-        model = Detector()
-        model.load_state_dict(state_dict, strict=False)
+        # Load ALL weights from saved file (encoder + classifier)
+        logger.info("Loading saved weights with mmap...")
+        state_dict = torch.load(MODEL_PATH, map_location="cpu", weights_only=True, mmap=True)
+        model.load_state_dict(state_dict, strict=True)
         del state_dict
         gc.collect()
         
-        # Ensure classifier is also half precision
-        model.classifier = model.classifier.half()
+        # Convert to half precision
+        model = model.half()
         model.to(device)
         model.eval()
         
-        # Clear any cached memory
         gc.collect()
         
         logger.info(f"✅ Model loaded in half-precision on {device}")
-        print("✅ Model Loaded (512MB Optimized)")
+        print("✅ Model Loaded (512MB Optimized - No Download)")
     
 except Exception as e:
     logger.error(f"Failed to load model: {e}")
