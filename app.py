@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from inference import predict_file
+from inference_lite import predict_file
 from audio_utils import decode_base64_audio
 import os
 import logging
