@@ -4,7 +4,6 @@ Download model file from Google Drive if it doesn't exist locally.
 import os
 import requests
 import sys
-import re
 
 MODEL_PATH = "models/deepfake_model_v2.pth"
 # Extract file ID from your Google Drive link: 1pva0o6QDdFcoq4gC2figHGTIc8ng48Vz
@@ -18,60 +17,57 @@ def download_file_from_google_drive(file_id, destination):
     # Create models directory if it doesn't exist
     os.makedirs(os.path.dirname(destination), exist_ok=True)
     
-    URL = f"https://drive.google.com/uc?export=download&id={file_id}"
+    # Use direct download URL that works for large files
+    URL = f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
     
-    session = requests.Session()
+    print("   Starting download...")
     
-    # First request
-    print("   Making initial request...")
-    response = session.get(URL, stream=True)
-    
-    # Check for virus scan warning (large files)
-    if 'text/html' in response.headers.get('Content-Type', ''):
-        print("   Large file detected, extracting confirmation...")
+    try:
+        response = requests.get(URL, stream=True, timeout=300)
+        response.raise_for_status()
         
-        # Get the HTML content
-        html_content = response.text
+        # Check if we got HTML (error page) instead of file
+        content_type = response.headers.get('Content-Type', '')
+        if 'text/html' in content_type:
+            print("   ⚠️ Got HTML response, trying alternate method...")
+            # Try with session and cookies
+            session = requests.Session()
+            response = session.get(
+                f"https://drive.google.com/uc?id={file_id}&export=download&confirm=t",
+                stream=True,
+                timeout=300
+            )
         
-        # Extract confirm and uuid from the HTML form
-        confirm_match = re.search(r'name="confirm" value="([^"]+)"', html_content)
-        uuid_match = re.search(r'name="uuid" value="([^"]+)"', html_content)
+        # Save the file
+        print("   Saving file...")
+        CHUNK_SIZE = 32768  # 32KB chunks
+        downloaded = 0
         
-        if confirm_match:
-            confirm_value = confirm_match.group(1)
-            print(f"   Found confirmation token: {confirm_value}")
-            
-            # Build the download URL with confirmation
-            params = {
-                'id': file_id,
-                'export': 'download',
-                'confirm': confirm_value
-            }
-            
-            if uuid_match:
-                params['uuid'] = uuid_match.group(1)
-            
-            # Make the actual download request
-            print("   Downloading with confirmation...")
-            response = session.get(URL, params=params, stream=True)
-    
-    # Save the file
-    print("   Saving file...")
-    CHUNK_SIZE = 8192
-    downloaded = 0
-    
-    with open(destination, "wb") as f:
-        for chunk in response.iter_content(CHUNK_SIZE):
-            if chunk:
-                f.write(chunk)
-                downloaded += len(chunk)
-                # Print progress every 10MB
-                if downloaded % (10 * 1024 * 1024) < CHUNK_SIZE:
-                    print(f"   Downloaded: {downloaded / (1024*1024):.1f} MB...")
-    
-    file_size = os.path.getsize(destination)
-    print(f"✅ Model downloaded successfully to {destination}")
-    print(f"📊 Final file size: {file_size / (1024*1024):.2f} MB")
+        with open(destination, "wb") as f:
+            for chunk in response.iter_content(CHUNK_SIZE):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    # Print progress every 50MB
+                    if downloaded % (50 * 1024 * 1024) < CHUNK_SIZE:
+                        print(f"   Downloaded: {downloaded / (1024*1024):.1f} MB...")
+        
+        file_size = os.path.getsize(destination)
+        
+        # Validate file size (should be around 360MB)
+        if file_size < 1000000:  # Less than 1MB suggests download failed
+            print(f"   ⚠️ Downloaded file too small ({file_size} bytes), likely an error page")
+            os.remove(destination)
+            raise Exception("Download failed - file too small")
+        
+        print(f"✅ Model downloaded successfully to {destination}")
+        print(f"📊 Final file size: {file_size / (1024*1024):.2f} MB")
+        
+    except Exception as e:
+        print(f"   ❌ Download error: {e}")
+        if os.path.exists(destination):
+            os.remove(destination)
+        raise
 
 def main():
     if os.path.exists(MODEL_PATH):
